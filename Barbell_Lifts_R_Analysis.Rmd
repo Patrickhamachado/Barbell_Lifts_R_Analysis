@@ -1,0 +1,295 @@
+---
+title: "Barbell Lifts R Analysis"
+author: Patrick Machado
+output: html_notebook
+---
+
+---
+
+### Introduction
+
+The goal for this analysis is to predict the manner in which the participants of the experiment did the exercise. This is the “classe” variable in the training set, available in: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>.
+ 
+The prediction model constructed will be used to predict 20 different test cases, from the test data available here:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>.
+
+The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>. 
+
+
+![Barbell lifts!](man-at-gym.jpg){ width=30% }
+
+Image from [www.needpix.com](www.needpix.com/photo/1517955/heavy-length-lifting-man-weight-exercising-equipment-exercise-cheerful).
+
+
+### A. Loading and partitioning the data
+
+#### A.1 Libraries loading
+
+```{r libraries}
+
+library(caret)
+library(ggplot2)
+library(readr)
+library(FSelector)
+library(rpart)
+library(GGally)
+library(knitr)
+
+
+
+```
+
+
+#### A.2 Data reading from the web
+
+The datasets has 160 variables each.
+
+```{r reading, cache = TRUE}
+training.raw <- read.csv('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv') #19622x160
+validation.raw <- read.csv('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv')    #20x160
+
+```
+
+
+```{r reading2, cache = TRUE}
+
+cat('Original Training dimensions: ', dim(training.raw), 
+    '\nOriginal Testing dimensions: ', dim(validation.raw))
+
+```
+
+
+### B. Exploratory analysis and data cleaning
+
+#### B.1 Partitioning
+
+It's considered that the 19.622 data rows are enough to make two partitions, training (70%) and testing (30%).
+
+
+```{r partitioning}
+
+set.seed(4321)
+inTrain <- createDataPartition(training.raw$classe, p = 7/10, list = FALSE)
+training <- training.raw[ inTrain, ]
+testing <- training.raw[ -inTrain, ]
+
+cat('Model Training dimensions: ', dim(training), 
+    '\nModel Testing dimensions: ', dim(testing))
+
+```
+
+#### B.2 Exploratory Analysis
+
+After an exploratory analysis, some relevant facts about the data where found:
+
+- There are some columns for identification and for the timestamp of the data, like `      X`, `   user_name`, `raw_timestamp_part_1`, `raw_timestamp_part_2`, and `         cvtd_timestamp`. 
+
+- Appears that the `  num_window` variable was intended for the experimental design, as can be seen in the following figure, that shows the relation between the `user_name`, `num_window` and ` classe` variables. 
+
+
+```{r f_num_window}
+
+qplot(training[, 'num_window'], training[, 'user_name'], 
+      data = training, colour = classe, 
+      ylab = 'user_name', xlab = 'num_window', 
+      main = 'user_name vs num_window')
+
+```
+
+
+- The categorial variable `new_window` is very biased and split the data into two groups: no: 97.9% / yes: 2.1%
+
+```{r new_window}
+
+summary(training$new_window)
+summary(training$new_window) / nrow(training) * 100
+
+```
+
+
+- There are some variables where in the 97.9% of the cases there isn't useful data, for instance `kurtosis_roll_belt`, `kurtosis_picth_belt`, and `avg_pitch_forearm`:
+
+
+```{r woutdata1}
+
+summary(training[, c('kurtosis_roll_belt', 'kurtosis_picth_belt', 'avg_pitch_forearm')])
+
+```
+
+
+#### B.3 Data Exclusion
+
+According to the previous analysis, some variables are going to be excluded for the main model construction:
+
+- Because they are don't bring actual data measured from the sensors, and are intended for identification or experimental design only
+- Because they have too little data, just in the 2.1% of the measurings
+
+In the following chunk, there is the code for filtering those variables, resulting in 107 less features to build the model.
+
+
+```{r filtering, message = FALSE, warning = FALSE}
+
+# Without enough data
+sumary0 <- summary(training)
+sin.datos <- parse_number(sumary0[ 1, ]) == 13447 | 
+  parse_number(sumary0[ 7, ]) == 13447
+
+sin.datos[ is.na(sin.datos)] <- FALSE
+sin.datos <- colnames(sumary0)[sin.datos]
+
+# Identification variables
+sin.datos <- append(c('      X', '   user_name', 'raw_timestamp_part_1', 
+                      'raw_timestamp_part_2', '         cvtd_timestamp',
+                      '  num_window'), sin.datos)
+
+# Column Numbers to exclude
+sin.datos.num <- which(colnames(sumary0) %in% sin.datos)
+cat('Excluded variables: ', length(sin.datos.num))
+
+```
+
+
+### C. Main Features selection
+
+
+Excluding the previous 107 variables, there are still `160 - 107 - 1 =` **` 52`** variables that can be used for the model building. In order to simplifying the model and avoid overfitting, an analysis with the **FSelector** library is accomplished, that select the main features using correlation and entropy measures and resulting in the following formula:
+
+
+```{r mainfeatures}
+
+main.features <- cfs(classe ~ . , data = training[, -sin.datos.num])
+main.formula <- as.simple.formula( main.features, "classe" )
+main.formula
+
+```
+
+
+Below is the relationship between the seven variables suggested for the **FSelector** package. 
+
+The single figures doesn't show some trend between any pair of variables, that suggest that they are indeed a good coice for prediction.
+
+
+```{r fpairs, fig.height=6.5, fig.width=8.4, message=FALSE}
+
+# Pairs plot
+f.pairs.col <- ggpairs(data = training, columns = 
+                         main.features,
+                       aes(colour = classe))
+f.pairs.col
+
+```
+
+
+### D. Models construction
+
+Six different models are going to be constructed, to compare the accuracy vs the number of predictors and the method selected.
+
+- The first three use just one predictor, the `num_window` variable. This models are for reference, because in a real prediction scenary, with just the data that comes directly from the sensors, this variable is hardly going to be available. 
+
+- Models four and five use the seven variables showed above
+
+- The last model use 52 predictors, excluding the variables analysed previously in the B.3 chapter
+
+
+| Number |       Model name   | Predictors |     Method    |
+|:------:|:----------------------:|:------:|:-------------:|
+|    1   | model.num_window.rf    | 1      | Random forest |
+|    2   | model.num_window.knn   | 1      | k-means       |
+|    3   | model.num_window.rpart | 1      | Rpart         |
+|    4   | model.main.knn         | 7      | k-means       |
+|    5   | model.main.rf          | 7      | Random forest |
+|    6   | model.knn              | 52     | k-means       |
+
+
+
+```{r modelbuilding, cache = TRUE}
+
+# D.1 Models with num_window
+model.num_window.rf <- train(classe ~ num_window, data = 
+                               training, method = "rf")
+
+model.num_window.knn <- train(classe ~ num_window, data = 
+                                training, method = "knn")
+
+model.num_window.rpart <- rpart(classe ~ num_window, data = 
+                                  training, method = "class")
+
+# D.2 Model knn with 7 features: Train acc: .67
+model.main.knn <- train(main.formula, data = training, method = "knn")
+
+# D.3 Model rf with 7 features: Train acc: .97
+model.main.rf <- train(main.formula, data = training, method = "rf")
+
+# D.4 Model knn with 52 featuress: Train acc: .87
+model.knn <- train(classe ~ ., data = training[, -sin.datos.num], method = "knn")
+
+
+```
+
+
+### E: Model validation
+
+To validate the performance of the different models builded, the acuracy of the prediction against the testing dataset is meaured and presented in the following table.
+
+
+```{r validation, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+# Function for accuracy calculation
+fxAccuracy <- function(model){ 
+  if(model$method == 'class') {
+    predict0 <- predict(model, type = "class", 
+                        newdata = testing)
+  } else {
+    predict0 <- predict(model, newdata = testing)
+  }
+  sum(predict0 == testing$classe) / nrow(testing) 
+}
+
+
+# Accuracies calculation
+accuracies <- sapply(list(model.num_window.rf, 
+                          model.num_window.knn,
+            model.num_window.rpart, model.main.knn,
+            model.main.rf, model.knn), fxAccuracy)
+
+```
+
+
+```{r acctable, message=FALSE, warning=FALSE}
+
+kable(data.frame(Model_name = c('model.num_window.rf', 'model.num_window.knn', 'model.num_window.rpart', 'model.main.knn', 'model.main.rf', 'model.knn'), 
+                 Predictors = c(1, 1, 1, 7, 7, 52),
+                 Accuracy = accuracies), digits = 4, 
+      format = "markdown")
+
+```
+
+
+### F: Conclusions
+
+Analysing the accuracy achieved, in the previous table, these are some conclusions:
+
+- With just one predictor, `num_window`, the random forest and the k-means, both, showed very good accuracy.
+- With the seven predictors suggested for the package *FSelector*, the random forest model showed very good accuracy as well.
+- For this dataset, the k-means method is not very effective, his performance with 52 predictors is even worse than a random forest model with 7 predictors.
+- Among the six models builded, the random forest with the `num_window` as the only predictor showed the best accuracy. Nevertheless, this particular variable seems to be a variable for the experimental design and not a real sensor measurement coming from a device such a *Jawbone Up*, *Nike FuelBand* nor  *Fitbit*.
+- For the prediction with the original validation data propossed for the coursera Course Project, the random forest with only the `num_window` predictor (*model.num_window.rf*) is going to be used. However, for a prediction in a real environment, with just the data that comes directly from the sensors, this variable is hardly going to be available; in that case, the random forest model with 7 predictors (*model.main.rf*) would be preferred instead.
+
+
+### G. Prediction with the original test dataset
+
+In the following chunk is the code for the prediction with the two random forest models mentioned above, the first one with just one 'fake' predictor and the other one with 7 predictors. Both present the same results.
+
+
+
+```{r CourseraPrediction, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+data.frame(RF_1_predictor = predict(model.num_window.rf, 
+                                  validation.raw),
+            RF_7_predictors = predict(model.main.rf,
+                                      validation.raw))
+
+
+```
+
+---
