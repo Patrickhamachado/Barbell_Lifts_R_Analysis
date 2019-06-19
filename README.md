@@ -4,7 +4,7 @@
 
 This repo is intended to complete the Prediction Assignment Writeup, of the fourth week of the [Coursera Practical Machine Learning](https://www.coursera.org/learn/practical-machine-learning/peer/R43St/prediction-assignment-writeup) course.
 
-The code with all the analysis is in the **Barbell_Lifts_R_Analysis.Rmd** and  **Barbell_Lifts_R_Analysis.html** files. Also, [the HTML page can be viewed here](https://patrickhamachado.github.io/Barbell_Lifts_R_Analysis/)
+The code with all the analysis is in the **Barbell_Lifts_R_Analysis.Rmd** and  **Barbell_Lifts_R_Analysis.html** files. Also, [the HTML page can be viewed here](https://patrickhamachado.github.io/Barbell_Lifts_R_Analysis/Barbell_Lifts_R_Analysis.html)
 
 
 *Patrick Machado*
