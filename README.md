@@ -1,5 +1,8 @@
 # Barbell Lifts R Analysis
 
+
+[Web page link](https://patrickhamachado.github.io/Barbell_Lifts_R_Analysis/Barbell_Lifts_R_Analysis.html)
+
 ---
 
 This repo is intended to complete the Prediction Assignment Writeup, of the fourth week of the [Coursera Practical Machine Learning](https://www.coursera.org/learn/practical-machine-learning/peer/R43St/prediction-assignment-writeup) course.
